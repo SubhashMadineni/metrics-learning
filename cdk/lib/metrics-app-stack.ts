@@ -73,6 +73,16 @@ export class MetricsAppStack extends cdk.Stack {
     role.addManagedPolicy(
       iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonECR-FullAccess')
     );
+    
+    // Add SSM permissions for GitHub Actions to connect
+    role.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')
+    );
+    
+    // Add EC2 instance connect permissions
+    role.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName('EC2InstanceConnect')
+    );
 
     // Create the ECR repository if it doesn't exist
     const repository = new ecr.Repository(this, 'MetricsAppRepository', {
@@ -90,7 +100,7 @@ export class MetricsAppStack extends cdk.Stack {
       machineImage: ec2.MachineImage.latestAmazonLinux2023(),
       securityGroup,
       role,
-      keyName: 'metrics-app-key', // Make sure to create this key pair in the AWS console
+      keyPair: ec2.KeyPair.fromKeyPairName(this, 'MetricsAppKeyPair', 'metrics-app-key'), // Make sure to create this key pair in the AWS console
       vpcSubnets: {
         subnetType: ec2.SubnetType.PUBLIC
       }

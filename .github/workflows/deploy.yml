@@ -11,7 +11,7 @@ env:
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,6 +36,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
         
+      - name: Check if ECR repository exists or create it
+        run: |
+          if ! aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} > /dev/null 2>&1; then
+            aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }}
+          fi
+        
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -46,19 +52,43 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
           echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           
-      - name: Set up CDK
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          
-      - name: Install CDK dependencies
+      - name: Deploy application to EC2
         run: |
-          cd cdk
-          npm install
+          # Get the instance ID of our EC2 instance using tags
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=MetricsAppStack/MetricsAppInstance" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
           
-      - name: Deploy with CDK
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "No running EC2 instance found with the tag MetricsAppInstance"
+            exit 1
+          fi
+          
+          echo "Found EC2 instance: $INSTANCE_ID"
+          
+          # Use SSM to run commands on the instance
+          aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name "AWS-RunShellScript" \
+            --comment "Update application from GitHub Actions" \
+            --parameters commands="cd /opt/metrics-app && \
+              ECR_REPO_URI=$(aws ecr describe-repositories --repository-names metrics-app --query 'repositories[0].repositoryUri' --output text) && \
+              sed -i \"s|\${ECR_REPO_URI}|$ECR_REPO_URI|g\" docker-compose.yml && \
+              aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_REPO_URI && \
+              docker-compose pull && \
+              docker-compose down && \
+              docker-compose up -d" \
+            --output text
+            
+      - name: Get Application URL
         run: |
-          cd cdk
-          npm run cdk deploy -- --require-approval never
-        env:
-          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} 
+          INSTANCE_PUBLIC_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=MetricsAppStack/MetricsAppInstance" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+            
+          echo "Application is available at:"
+          echo "Metrics App: http://$INSTANCE_PUBLIC_IP:8080"
+          echo "Prometheus: http://$INSTANCE_PUBLIC_IP:9090"
+          echo "Grafana: http://$INSTANCE_PUBLIC_IP:3000" 
