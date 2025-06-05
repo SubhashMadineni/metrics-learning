@@ -17,9 +17,9 @@ const githubActionsRoleStack = new cdk.Stack(app, 'GithubActionsRoleStack', {
 });
 
 const githubRole = new GithubActionsRole(githubActionsRoleStack, 'GitHubActionsRole', {
-  githubOrg: 'your-github-username',    // REPLACE with your GitHub username or organization
-  githubRepo: 'metrics-learning',       // REPLACE with your repository name
-  githubBranches: ['main'],             // Add other branches if needed
+  githubOrg: 'subhashmadineni',    // REPLACE with your actual GitHub username
+  githubRepo: 'metrics-learning',  // REPLACE with your actual repository name
+  githubBranches: ['main'],        // Add other branches if needed
 });
 
 // Create the main application stack
